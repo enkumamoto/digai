@@ -1,8 +1,12 @@
-**Desafio da Plataforma: API REST Escalável e Resiliente com TypeScript, NestJS e AWS
+# Desafio da Plataforma: API REST Escalável e Resiliente com TypeScript, NestJS e AWS
+
 Este repositório contém o código para uma API REST desenvolvida com TypeScript, NestJS e AWS, demonstrando escalabilidade, resiliência e observabilidade.
+
 ---
 
-*Estrutura do Projeto
+## 📂 Estrutura do Projeto
+
+```
 parte1/
 ├── Dockerfile
 ├── index.ts
@@ -10,310 +14,267 @@ parte1/
 ├── pipeline_ci_ecr.yaml
 ├── pipeline_iac_pulumi.yaml
 ├── pipeline_iac_terraform.yaml
-└── src
+└── src/
     ├── cloudwatch.service.ts
     └── prometheus.service.ts
+```
 
-*Parte 1: Contêinerização e Deploy Básico
-Dockerfile
-'''
-    # Use uma imagem base Node.js para produção
-    FROM node:16-alpine as builder
+---
 
-    # Defina o diretório de trabalho
-    WORKDIR /app
+## 🚀 Parte 1: Contêinerização e Deploy Básico
 
-    # Copie os arquivos package.json e package-lock.json (se existir)
-    COPY package*.json ./
+### Dockerfile
 
-    # Instale as dependências
-    RUN npm install --production
+```dockerfile
+# Use uma imagem base Node.js para produção
+FROM node:16-alpine as builder
 
-    # Copie o restante do código fonte
-    COPY . .
+# Defina o diretório de trabalho
+WORKDIR /app
 
-    # Construa o aplicativo NestJS
-    RUN npm run build
+# Copie os arquivos package.json e package-lock.json
+COPY package*.json ./
 
-    # Use uma imagem menor para o runtime
-    FROM node:16-alpine
+# Instale as dependências
+RUN npm install --production
 
-    # Defina o diretório de trabalho
-    WORKDIR /app
+# Copie o restante do código fonte
+COPY . .
 
-    # Copie os arquivos do builder
-    COPY --from=builder /app/dist ./dist
-    COPY --from=builder /app/node_modules ./node_modules
+# Construa o aplicativo NestJS
+RUN npm run build
 
-    # Exponha a porta 8080
-    EXPOSE 8080
+# Use uma imagem menor para o runtime
+FROM node:16-alpine
 
-    # Comando para iniciar a aplicação
-    CMD ["node", "dist/main.js"]
-'''
+# Defina o diretório de trabalho
+WORKDIR /app
 
-*Pipeline de CI para ECR (pipeline_ci_ecr.yaml)
+# Copie os arquivos do builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
 
-'''yml
-    name: CI/CD
+# Exponha a porta 8080
+EXPOSE 8080
 
-    on:
-    push:
-        branches:
-        - main
+# Comando para iniciar a aplicação
+CMD ["node", "dist/main.js"]
+```
 
-    jobs:
-    build-and-push:
-        runs-on: ubuntu-latest
-        steps:
-        - name: Checkout code
-            uses: actions/checkout@v3
+### Pipeline de CI para ECR (`pipeline_ci_ecr.yaml`)
 
-        - name: Configure AWS credentials
-            uses: aws-actions/configure-aws-credentials@v1
-            with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ secrets.AWS_REGION }}
+```yaml
+name: CI/CD
 
-        - name: Login to ECR
-            id: login-ecr
-            uses: aws-actions/amazon-ecr-login@v1
+on:
+  push:
+    branches:
+      - main
 
-        - name: Build and tag Docker image
-            run: |
-            docker build -t $ECR_REPOSITORY_URL:$GITHUB_SHA .
-            docker tag $ECR_REPOSITORY_URL:$GITHUB_SHA $ECR_REPOSITORY_URL:latest
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-        - name: Push Docker image to ECR
-            run: |
-            docker push $ECR_REPOSITORY_URL:$GITHUB_SHA
-            docker push $ECR_REPOSITORY_URL:latest
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-        - name: Update ECS service
-            run: |
-            aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment --image $ECR_REPOSITORY_URL:$GITHUB_SHA
-'''
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-*Parte 2: Provisionamento de Infraestrutura com Pulumi
+      - name: Build and tag Docker image
+        run: |
+          docker build -t $ECR_REPOSITORY_URL:$GITHUB_SHA .
+          docker tag $ECR_REPOSITORY_URL:$GITHUB_SHA $ECR_REPOSITORY_URL:latest
 
-Instalação do Pulumi
+      - name: Push Docker image to ECR
+        run: |
+          docker push $ECR_REPOSITORY_URL:$GITHUB_SHA
+          docker push $ECR_REPOSITORY_URL:latest
 
-'''bash
-    curl -fsSL https://get.pulumi.com/ | sh
-'''
+      - name: Update ECS service
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER_NAME --service $ECS_SERVICE_NAME --force-new-deployment --image $ECR_REPOSITORY_URL:$GITHUB_SHA
+```
 
-*Criação do Projeto Pulumi
-'''bash
-    pulumi new typescript
-'''
+---
 
-*Código Pulumi (index.ts)
-'''typeScript
-    import * as pulumi from "@pulumi/pulumi";
-    import * as aws from "@pulumi/aws";
-    import * as awsx from "@pulumi/awsx";
+## 🏗️ Parte 2: Provisionamento de Infraestrutura com Pulumi
 
-    // Crie um cluster ECS
-    const cluster = new aws.ecs.Cluster("my-cluster");
+### Instalação do Pulumi
 
-    // Crie um Application Load Balancer (ALB)
-    const alb = new awsx.lb.ApplicationLoadBalancer("my-alb", {
-    vpc: awsx.ec2.Vpc.getDefault(), // Use o VPC padrão ou especifique o seu
-    internetFacing: true,
-    });
+```bash
+curl -fsSL https://get.pulumi.com/ | sh
+```
 
-    // Crie um grupo de destino para o ALB
-    const targetGroup = alb.createTargetGroup("my-target-group", {
-    port: 8080,
-    protocol: "HTTP",
-    healthCheck: {
-        path: "/",
-        protocol: "HTTP",
-        matcher: "200",
-        interval: 30,
-        timeout: 5,
-        healthyThreshold: 3,
-        unhealthyThreshold: 3,
+### Criação do Projeto Pulumi
+
+```bash
+pulumi new typescript
+```
+
+### Código Pulumi (`index.ts`)
+
+```typescript
+import * as pulumi from "@pulumi/pulumi";
+import * as aws from "@pulumi/aws";
+import * as awsx from "@pulumi/awsx";
+
+// Criação do cluster ECS
+const cluster = new aws.ecs.Cluster("my-cluster");
+
+// Criação do ALB
+const alb = new awsx.lb.ApplicationLoadBalancer("my-alb", {
+  vpc: awsx.ec2.Vpc.getDefault(),
+  internetFacing: true,
+});
+
+// Grupo de destino para o ALB
+const targetGroup = alb.createTargetGroup("my-target-group", {
+  port: 8080,
+  protocol: "HTTP",
+  healthCheck: {
+    path: "/",
+    matcher: "200",
+  },
+});
+
+// Serviço ECS
+const service = new awsx.ecs.FargateService("my-service", {
+  cluster,
+  taskDefinitionArgs: {
+    container: {
+      image: `${process.env.ECR_REPOSITORY_URL}:latest`,
+      portMappings: [{ containerPort: 8080 }],
     },
+  },
+  desiredCount: 2,
+  loadBalancers: [{
+    targetGroupArn: targetGroup.arn,
+    containerName: "my-container",
+  }],
+});
+
+export const url = alb.loadBalancer.dnsName;
+```
+
+---
+
+## 📊 Parte 3: Observabilidade
+
+### CloudWatch (`cloudwatch.service.ts`)
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import * as AWS from 'aws-sdk';
+
+@Injectable()
+export class CloudwatchService {
+  private cloudwatch: AWS.CloudWatchLogs;
+
+  constructor() {
+    this.cloudwatch = new AWS.CloudWatchLogs({
+      region: process.env.AWS_REGION,
     });
+  }
 
-    // Crie um serviço ECS
-    const service = new awsx.ecs.FargateService("my-service", {
-    cluster,
-    taskDefinitionArgs: {
-        container: {
-        image: `${process.env.ECR_REPOSITORY_URL}:latest`,
-        portMappings: [{ containerPort: 8080 }],
-        },
-    },
-    desiredCount: 2, // Número de instâncias
-    loadBalancers: [
-        {
-        targetGroupArn: targetGroup.arn,
-        containerName: "my-container", // Nome do seu container no task definition
-        },
-    ],
+  log(message: string) {
+    const params = {
+      logGroupName: '/aws/ecs/my-cluster/my-service',
+      logStreamName: 'my-stream',
+      logEvents: [{ timestamp: Date.now(), message }],
+    };
+
+    this.cloudwatch.putLogEvents(params, (err) => {
+      if (err) console.error('Erro ao enviar logs para o CloudWatch:', err);
     });
+  }
+}
+```
 
-    // Exporte o endpoint do ALB
-    export const url = alb.loadBalancer.dnsName;
-'''
+### Prometheus (`prometheus.service.ts`)
 
-*Pipeline para IaC com Pulumi (pipeline_iac_pulumi.yaml)
-'''yml
-    name: IaC
+```typescript
+import { Injectable } from '@nestjs/common';
+import { Counter, register, collectDefaultMetrics } from 'prom-client';
 
-    on:
-    push:
-        branches:
-        - main
+@Injectable()
+export class PrometheusService {
+  private requestCounter: Counter;
 
-    jobs:
-    deploy-infrastructure:
-        runs-on: ubuntu-latest
-        steps:
-        - name: Checkout code
-            uses: actions/checkout@v3
+  constructor() {
+    this.requestCounter = new Counter({
+      name: 'http_requests_total',
+      help: 'Total number of HTTP requests',
+    });
+    collectDefaultMetrics({ prefix: 'nodejs_', register });
+  }
 
-        - name: Configure AWS credentials
-            uses: aws-actions/configure-aws-credentials@v1
-            with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ secrets.AWS_REGION }}
+  incrementRequestCount() {
+    this.requestCounter.inc();
+  }
 
-        - name: Install Pulumi CLI
-            uses: pulumi/actions@v4
+  getMetrics(): Promise<string> {
+    return register.metrics();
+  }
+}
+```
 
-        - name: Pulumi Login
-            run: pulumi login --access-token ${{ secrets.PULUMI_ACCESS_TOKEN }}
+---
 
-        - name: Pulumi Preview
-            run: pulumi preview --stack dev
+## 📌 Instruções
 
-        - name: Pulumi Up
-            run: pulumi up --stack dev --yes
-'''
+### Executando os Pipelines
 
-*Parte 3: Observabilidade
-cloudwatch.service.ts
-'''typeScript
-    import { Injectable } from '@nestjs/common';
-    import * as AWS from 'aws-sdk';
+1. Configure as **Secrets** no GitHub:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `AWS_REGION`
+   - `ECR_REPOSITORY_URL`
+   - `ECS_CLUSTER_NAME`
+   - `ECS_SERVICE_NAME`
+   - `PULUMI_ACCESS_TOKEN`
 
-    @Injectable()
-    export class CloudwatchService {
-    private cloudwatch: AWS.CloudWatchLogs;
+2. Faça push do código para o GitHub:
+   - Os pipelines serão executados automaticamente ao enviar código para `main`.
 
-    constructor() {
-        this.cloudwatch = new AWS.CloudWatchLogs({
-        region: process.env.AWS_REGION,
-        });
-    }
+### Testando a Aplicação
 
-    log(message: string) {
-        const params = {
-        logGroupName: '/aws/ecs/my-cluster/my-service', // Substitua pelo seu log group
-        logStreamName: 'my-stream', // Substitua pelo seu log stream
-        logEvents: [
-            {
-            timestamp: Date.now(),
-            message: message,
-            },
-        ],
-        };
+#### Localmente
 
-        this.cloudwatch.putLogEvents(params, (err, data) => {
-        if (err) {
-            console.error('Erro ao enviar logs para o CloudWatch:', err);
-        }
-        });
-    }
-    }
-'''
+```bash
+git clone <repositório>
+npm install
+npm run start:dev
+```
 
-prometheus.service.ts
-'''typeScript
-    import { Injectable } from '@nestjs/common';
-    import { Counter, register } from 'prom-client';
-    import { collectDefaultMetrics } from 'prom-client';
+Acesse em: `http://localhost:8080`
 
-    @Injectable()
-    export class PrometheusService {
-    private requestCounter: Counter;
+#### Em Produção
 
-    constructor() {
-        this.requestCounter = new Counter({
-        name: 'http_requests_total',
-        help: 'Total number of HTTP requests',
-        });
+Após os pipelines, a aplicação estará disponível no **endpoint do ALB** (exibido na saída do Pulumi).
 
-        collectDefaultMetrics({
-        prefix: 'nodejs_',
-        register: register,
-        });
-    }
+### Monitoramento
 
-    incrementRequestCount() {
-        this.requestCounter.inc();
-    }
+- **CloudWatch**: Logs disponíveis no console da AWS.
+- **Prometheus**: Métricas disponíveis no endpoint `/metrics`.
 
-    getMetrics(): Promise<string> {
-        return register.metrics();
-    }
-    }
-'''
+---
 
-**Instruções
-*Executando os Pipelines
-1. Configure as Secrets no GitHub:
+## 📚 Recursos Adicionais
 
-AWS_ACCESS_KEY_ID: Sua chave de acesso AWS.
-AWS_SECRET_ACCESS_KEY: Sua chave secreta AWS.
-AWS_REGION: A região da AWS para seus recursos.
-ECR_REPOSITORY_URL: A URL do seu repositório ECR.
-ECS_CLUSTER_NAME: O nome do seu cluster ECS.
-ECS_SERVICE_NAME: O nome do seu serviço ECS.
-PULUMI_ACCESS_TOKEN: Seu token de acesso do Pulumi.
+- [Documentação NestJS](https://nestjs.com/)
+- [Documentação Pulumi](https://www.pulumi.com/docs/)
+- [Documentação AWS](https://docs.aws.amazon.com/)
 
-2. Dê push para o seu código no GitHub:
+---
 
-Os pipelines serão executados automaticamente após o push para o branch main.
+Este README fornece um guia claro e padronizado para configurar, executar e monitorar a aplicação. 🚀
 
-*Testando a Aplicação
-1. Localmente:
-
-Clone o repositório.
-Instale as dependências: npm install.
-Execute a aplicação: npm run start:dev.
-Acesse a API em http://localhost:8080.
-
-2. Em produção:
-
-Após a execução dos pipelines, a aplicação estará disponível no endpoint do ALB.
-O endpoint será exibido na saída do Pulumi após o deploy.
-
-*Monitorando e Observando o Sistema
-1. CloudWatch:
-
-Os logs da aplicação serão enviados para o CloudWatch.
-Você pode monitorar os logs no console da AWS.
-
-2. Prometheus:
-
-As métricas da aplicação serão expostas no endpoint /metrics.
-Você pode configurar o Prometheus para coletar as métricas.
-
-**Observações
-Este README fornece um guia básico para executar e testar a aplicação.
-Para obter mais detalhes sobre a implementação, consulte o código fonte.
-Certifique-se de configurar corretamente as secrets no GitHub antes de executar os pipelines.
-Este exemplo utiliza o Pulumi para provisionamento de infraestrutura. Você pode adaptar o código para usar outras ferramentas, como Terraform.
-
-**Recursos Adicionais
-Documentação do NestJS
-Documentação do Pulumi
-Documentação da AWS
-
-Este README abrangente fornece todas as informações necessárias para entender, executar e observar a aplicação. Ele também inclui links para recursos adicionais para aprofundar seus conhecimentos.
